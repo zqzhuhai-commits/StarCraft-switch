@@ -1,0 +1,1 @@
+dissect.squashfs==1.12

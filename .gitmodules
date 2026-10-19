@@ -1,0 +1,3 @@
+[submodule "ia32rtools"]
+	path = vendor/ia32rtools
+	url = https://github.com/notaz/ia32rtools.git
