@@ -3,9 +3,9 @@ set(CMAKE_SYSTEM_NAME Generic)
 set(CMAKE_SYSTEM_PROCESSOR aarch64)
 
 if(DEFINED ENV{DEVKITPRO})
-set(DEVKITPRO $ENV{DEVKITPRO})
+	set(DEVKITPRO $ENV{DEVKITPRO})
 else()
-set(DEVKITPRO /opt/devkitpro)
+	set(DEVKITPRO /opt/devkitpro)
 endif()
 set(DEVKITA64 ${DEVKITPRO}/devkitA64)
 
