@@ -10,3 +10,4 @@ audit.json
 *.nro
 openbw-switch/build/
 openbw-switch/hello/
+dist/
