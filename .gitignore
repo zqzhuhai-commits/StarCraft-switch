@@ -9,3 +9,4 @@ audit.json
 *.nsp
 *.nro
 openbw-switch/build/
+openbw-switch/hello/
