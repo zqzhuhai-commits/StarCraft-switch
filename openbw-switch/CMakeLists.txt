@@ -19,10 +19,10 @@ find_package(PkgConfig)
 pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
 
 # libnx
-set(LIBNX_INCLUDE /opt/devkitpro/libnx/include)
-set(LIBNX_LIB /opt/devkitpro/libnx/lib)
+set(LIBNX_INCLUDE ${DEVKITPRO}/libnx/include)
+set(LIBNX_LIB ${DEVKITPRO}/libnx/lib)
 include_directories(${LIBNX_INCLUDE})
-link_directories(/opt/devkitpro/libnx/lib /opt/devkitpro/portlibs/switch/lib)
+link_directories(${DEVKITPRO}/libnx/lib ${DEVKITPRO}/portlibs/switch/lib)
 
 add_executable(openbw-switch
     src/main.cpp
@@ -53,7 +53,7 @@ target_link_libraries(openbw-switch PRIVATE
 )
 
 target_link_options(openbw-switch PRIVATE
-    -specs=/opt/devkitpro/libnx/switch.specs
+    -specs=${DEVKITPRO}/libnx/switch.specs
     -fPIE
 )
 

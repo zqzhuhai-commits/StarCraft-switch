@@ -188,51 +188,76 @@ int main() {
 	size_t screen_width = 1280;
 	size_t screen_height = 720;
 
-	log("OpenBW Switch port - boot\n");
+	// libnx: mount SD card into stdio (fopen "sdmc:/..." ) BEFORE any logging
+	fsdevMountSdmc();
 
-	SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER);
-
-	// pre-check required game data on SD card
+	// make sure sdmc:/switch/StarCraft exists so log.txt can be written
 	{
-		const char* needed_files[] = {"StarDat.mpq", "BrooDat.mpq", "Patch_rt.mpq"};
-		for (const char* f : needed_files) {
-			std::string p = std::string("sdmc:/switch/StarCraft/") + f;
-			FILE* t = fopen(p.c_str(), "rb");
-			if (!t) log("MISSING %s\n", p.c_str());
-			else { fclose(t); log("ok    %s\n", p.c_str()); }
+		FsFileSystem fs;
+		if (R_SUCCEEDED(fsOpenSdCardFileSystem(&fs))) {
+			fsFsCreateDirectory(&fs, "/switch");
+			fsFsCreateDirectory(&fs, "/switch/StarCraft");
+			fsFsCreateDirectory(&fs, "/switch/StarCraft/maps");
+			fsFsClose(&fs);
 		}
 	}
 
+	log("boot: fsdev mounted\n");
+
+	// ---- data pre-check BEFORE any OpenBW init (missing data = clean abort, no crash) ----
+	{
+		const char* needed_files[] = {"StarDat.mpq", "BrooDat.mpq", "Patch_rt.mpq"};
+		bool ok = true;
+		for (const char* f : needed_files) {
+			std::string p = std::string("sdmc:/switch/StarCraft/") + f;
+			FILE* t = fopen(p.c_str(), "rb");
+			if (!t) { log("MISSING %s\n", p.c_str()); ok = false; }
+			else { fclose(t); log("ok    %s\n", p.c_str()); }
+		}
+		if (!ok) {
+			log("ABORT: missing game data in sdmc:/switch/StarCraft/\n");
+			return 3;
+		}
+	}
+	auto maps = find_maps_in("sdmc:/switch/StarCraft/maps");
+	log("%d maps found in sdmc:/switch/StarCraft/maps\n", (int)maps.size());
+	if (maps.empty()) {
+		log("ABORT: no .scm/.scc maps found\n");
+		return 2;
+	}
+	std::string map_path = maps[0];
+	log("will load map: %s\n", map_path.c_str());
+
+	log("SDL_Init...\n");
+	SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER);
+	log("SDL_Init done\n");
+
 	auto load_data_file = data_loading::data_files_directory("sdmc:/switch/StarCraft/");
 
+	log("creating game_player...\n");
 	game_player player(load_data_file);
+	log("game_player ok\n");
 
 	ui_functions ui(std::move(player));
 	auto& u = ui;
 
+	log("loading image data...\n");
 	u.load_all_image_data(load_data_file);
 	u.load_data_file = [&](a_vector<uint8_t>& data, a_string filename) {
 		load_data_file(data, std::move(filename));
 	};
 	u.init();
+	log("ui init done\n");
 
 	auto& wnd = u.wnd;
 	if (!wnd.create("StarCraft", 0, 0, screen_width, screen_height)) {
 		log("window create failed\n");
 		return 1;
 	}
-
-	// pick a map from sdmc:/switch/StarCraft/maps/
-	auto maps = find_maps_in("sdmc:/switch/StarCraft/maps");
-	log("%d maps found\n", (int)maps.size());
-	if (maps.empty()) {
-		log("no maps found in sdmc:/switch/StarCraft/maps\n");
-		return 2;
-	}
-	std::string map_path = maps[0];
-	log("loading map: %s\n", map_path.c_str());
+	log("window created\n");
 
 	u.player.load_map_file(map_path);
+	log("map loaded\n");
 
 	u.resize(screen_width, screen_height);
 	u.screen_pos = {(int)u.game_st.map_width / 2 - (int)screen_width / 2, (int)u.game_st.map_height / 2 - (int)screen_height / 2};
