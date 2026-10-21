@@ -14,9 +14,8 @@ include_directories(
     ${OPENBW_DIR}/deps
 )
 
-# SDL2 from devkitPro portlibs (via pkg-config)
-find_package(PkgConfig)
-pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
+# Cross-target SDL2 only; never resolve host SDL packages.
+include_directories(${DEVKITPRO}/portlibs/switch/include ${DEVKITPRO}/portlibs/switch/include/SDL2)
 
 # libnx
 set(LIBNX_INCLUDE ${DEVKITPRO}/libnx/include)
@@ -31,6 +30,8 @@ add_executable(openbw-switch
 
 target_compile_options(openbw-switch PRIVATE
     -march=armv8-a+crc+crypto
+    -mtp=soft
+    -ftls-model=local-exec
     -mtune=cortex-a57
     -O2
     -ffunction-sections
@@ -39,7 +40,6 @@ target_compile_options(openbw-switch PRIVATE
 )
 
 target_link_libraries(openbw-switch PRIVATE
-    PkgConfig::SDL2
     -Wl,--start-group
     -lSDL2main
     -lSDL2
@@ -58,4 +58,4 @@ target_link_options(openbw-switch PRIVATE
 )
 
 # SDL_MAIN_HANDLED: we provide our own main()
-target_compile_definitions(openbw-switch PRIVATE SDL_MAIN_HANDLED OPENBW_NO_SDL_IMAGE OPENBW_NO_SDL_MIXER)
+target_compile_definitions(openbw-switch PRIVATE __SWITCH__ SDL_MAIN_HANDLED OPENBW_NO_SDL_IMAGE OPENBW_NO_SDL_MIXER)

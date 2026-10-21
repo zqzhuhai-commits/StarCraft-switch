@@ -2,18 +2,20 @@
 
 目标：将《星际争霸》1.16.1 中文版移植到 Nintendo Switch / Atmosphère，保留原版界面与游戏行为，仅适配触屏和按键。
 
-## 当前路线（2026-10-22）：OpenBW 原生移植（v1 可玩验证版）
+## 当前路线（2026-10-22）：OpenBW 原生开发测试版 0.2.0
 
-采用 **OpenBW 精确逆向引擎**原生编译为 Switch homebrew（AArch64，无 Wine/兼容层），
-逻辑逐帧对齐原版 1.16.1，包含**完整原版 AI**（战役/遭遇战电脑玩家）。
+已修复原入口的地图路径、触屏按下/松开、手柄拖选和未推进逻辑帧等问题，
+加入递归地图选择及选中单位的右键默认命令。提供原生 NRO/NSO 构建与应用 NSP 打包脚本。
+图标根据用户提供的母巢之战参考图重新生成，无水印。
 
-- 交叉编译链路已验证：devkitA64 + libnx + switch-sdl2 + mesa → `openbw-switch.nro`（HOMEBREW/NRO0）。
-- 数据与地图从 SD 卡加载（`sdmc:/switch/StarCraft/`，需 StarDat/BrooDat/Patch_rt.mpq）。
-- 手柄/触屏 → 鼠标输入层已完成，自动加载第一张地图开始对战。
-- 详见 [`openbw-switch/`](openbw-switch/)（构建、部署、操作映射、待办清单）。
+**这仍不是完整的《星际争霸 1.16.1 中文版》。**
+代码核查发现，当前 vendored OpenBW 的 UI 主要是回放查看器，完整建造/生产界面、
+原版主菜单、中文文本、存档尚未接入；`bwgame.h` 的 AI 脚本处理仅支持共享视野等有限脚本，
+多数脚本会报 `unknown ai script`。原先文档的“完整原版 AI”“可玩验证版”表述不成立。
+当前交付用于验证原生启动、地图加载、输入与基础单位命令，未经过 Switch 实机验证。
 
-已知缺口（下一迭代）：文本渲染层（OpenBW 上游无文字层，需自建，含中文 CJK 字库）、
-地图选择菜单、种族/对手设置、存档。
+构建与安装见 [`openbw-switch/README.md`](openbw-switch/README.md)。NSP 内嵌引擎程序，
+不是 NRO forwarder；MPQ 和地图仍从 SD 卡读取，不包含在 NSP 中。
 
 ## 已核查并放弃的路线（历史）
 
@@ -44,7 +46,7 @@ cd openbw-switch && ./build.sh   # 需要 /opt/devkitpro 工具链，产物 buil
 ```
 
 转换工具构建成功不表示游戏构建成功。`audit_pandora.py` 仅检查文件，不执行发布包内程序，不生成 NSP。
-OpenBW 路线已产出可构建的 `.nro`（本环境交叉编译通过），待实机验证。
+OpenBW 路线可构建 NRO/NSO 并打包开发测试 NSP，待实机验证。
 
 仓库不包含原版游戏资源、Windows 可执行文件、Pandora 游戏模块或任何主机密钥。公开的转换工具子模块保留上游许可证。本仓库自有检查脚本和文档使用 MIT 许可证；`openbw-switch/` 内 OpenBW 源码为 MIT。
 - [Pandora 官方发布包页面](https://repo.openpandora.org/?app=package.starcraft&page=detail)

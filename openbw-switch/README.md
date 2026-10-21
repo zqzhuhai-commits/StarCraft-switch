@@ -1,84 +1,78 @@
-# StarCraft 1.16.1（母巢之战）Switch 原生移植 — OpenBW 引擎
+# 星际争霸 Switch — OpenBW 原生开发测试版 0.2.0
 
-在 Nintendo Switch / Atmosphère 上原生运行《星际争霸 1.16.1 中文版》。
-不依赖 Wine / 兼容层；游戏逻辑为 OpenBW 精确逆向引擎（逐帧对齐原版，
-包含完整原版 AI：战役 / 遭遇战电脑玩家），渲染走 SDL2 软件管线。
+此版本用于验证移植链路，**不是完整原版游戏**，尚未实机验证。
 
-## 构建环境（本机已验证）
+## 本次修复
 
-- devkitA64 gcc 13.2.0（devkitPro r25.1，2024-02 构建，兼容 glibc 2.35）
-- libnx 4.9.0、switch-sdl2 2.28.5、switch-mesa 20.1.0、switch-libdrm_nouveau 1.0.1
-- switch-tools（elf2nro）
-- 全部安装于 `/opt/devkitpro`
+- 使用 stdio 路径枚举地图，修复原生 Fs API 不接受 `sdmc:` 前缀的问题。
+- 支持递归目录及大小写混合的 `.scm/.scx/.scc`，启动时用方向键选图、A 开始、+ 退出。
+- 保持映射后的 SDL 控制器连接，修复每帧反复打开、使用原始摇杆索引的问题。
+- 触屏产生完整按下、拖动、松开事件；关闭 SDL 自带触屏鼠标转换，避免重复点击。
+- 移动事件携带按键状态，断开手柄会释放鼠标和方向键，修复框选和卡键。
+- 通过基础 `state_functions::next_frame()` 推进逻辑；不调用回放播放器的 next_frame，避免零长度回放报错。
+- 右键向所选本地玩家单位发送默认命令（移动/采集/攻击，具体由引擎判断）；回放 UI 原有右键拖屏在游戏模式中禁用。
+- 取消重复载入全部图像、重复提交画面，统一日志写入通道，异常写入日志后退出。
+- 重新生成无水印 HOME 图标，构建时重新生成中文名称 NACP。
 
-> devkitPro 官方源 apt.devkitpro.org 对数据中心 IP 返回 Cloudflare 403，
-> 本环境工具链从第三方存档 wii.leseratte10.de/devkitPro 获取。
+## 安装
 
-## 构建
-
-```sh
-./build.sh
-# 产物: build/openbw-switch.nro
-```
-
-## 部署（SD 卡 · 单文件夹自包含）
-
-1. 把 `StarCraft-switch.nro` 与游戏文件放进 SD 卡 **`sdmc:/switch/StarCraft/`**：
+安装 `StarCraft-Switch-0.2.0-test.nsp` 后，在 SD 卡准备：
 
 ```
 switch/StarCraft/
-├── StarCraft-switch.nro     ← 主程序（hbmenu 内浏览到该目录启动）
-├── StarDat.mpq              ← 必需
-├── BrooDat.mpq              ← 必需
-├── Patch_rt.mpq             ← 必需
-└── maps/                    ← 遭遇战/战役地图（自动加载第一张 .scm/.scc）
+├── StarDat.mpq
+├── BrooDat.mpq
+├── Patch_rt.mpq
+└── maps/
+    ├── example.scx
+    └── campaign/example.scm
 ```
 
-2. hbmenu 启动后浏览到 `switch/StarCraft/`，运行 `StarCraft-switch.nro`，
-   自动加载 `maps/` 下第一张地图开始对战。
-3. 日志写入 `sdmc:/switch/StarCraft/log.txt`。
+NSP **直接内嵌引擎 NSO**，无需外部 NRO。游戏资源需要自行放在上述目录。
+另附 `StarCraft-switch.nro` 供 hbmenu 全内存模式调试；不建议相册 applet 模式。
+日志：`switch/StarCraft/log.txt`。
 
-## 操作映射
+## 操作
 
-| Switch | 作用 |
-|---|---|
-| 右摇杆 | 鼠标移动 |
-| 触屏 | 鼠标（按住拖动 = 框选） |
-| A | 左键（选择/命令） |
-| B | 右键（移动/取消） |
-| 左摇杆 | 镜头卷动（方向键） |
-| 左摇杆按下 + 拖动 | 小地图移动（后续版本） |
+- 右摇杆：鼠标；左摇杆：镜头；触屏：选择/拖选。
+- SDL A/B：左键/右键（实体位置取决于 SDL 控制器映射，待实机确认）。
+- 左肩键：Shift，加选及排队命令。
+- +：暂停；-：退出（选图界面使用 + 退出）。
 
-## 当前状态（v1 · 可玩验证版）
+## 已知限制
 
-已完成：
-- [x] 交叉编译工具链与工程（CMake + toolchain + build.sh）
-- [x] OpenBW 引擎 + SDL2 后端编译为 homebrew NRO
-- [x] 数据/地图从 SD 卡加载（sdmc:/StarCraft）
-- [x] 手柄/触屏 → 鼠标输入层（SDL 事件注入）
-- [x] 地图自动加载与游戏循环（原版 AI 运行）
+- 尚无完整建造/生产/技能面板、原版主菜单、种族/对手设置、中文文本或存档。
+- 当前 OpenBW 高层 AI 脚本不完整：大部分 AI 脚本、部分地图触发器会抛异常并退出，日志中可见原因。不能宣称完整战役或完整遭遇战。
+- `OPENBW_NO_SDL_MIXER` 构建不提供实际声音播放。
+- 中文图形字库未接入，选图界面的中文文件名可能不显示。
+- 1280×720 渲染、Switch 安装/启动、触屏和实体按键映射仍需实机验证。
+- 不兼容的地图会在日志中记录异常；请从基础地图开始测试。
 
-待办（下一迭代）：
-- [ ] 文本渲染层（资源/人口数字、提示文字）
-- [ ] 中文显示（任务简报、对话、单位名；需 CJK 字库渲染，OpenBW 上游无文字层，需自建）
-- [ ] 地图选择菜单（多图、战役列表）
-- [ ] 玩家种族/对手设置（当前按地图默认）
-- [ ] 声音验证（SDL2 音频后端）
-- [ ] 存档/读档
-- [ ] HOME 菜单图标与 NSP forwarder
+## 构建
 
-## 目录
+需要 devkitA64、libnx、switch-sdl2、switch-mesa、switch-libdrm_nouveau、switch-tools、CMake。
+本次构建组合：devkitA64 r25.1 / GCC 13.2、libnx 4.12.0、SDL2 2.28.5、Mesa 20.1.0-5、libdrm_nouveau 1.0.1-2、switch-tools 1.13.1。
 
-```
-openbw-switch/
-├── openbw/            # OpenBW 源码（bwgame.h 引擎 + ui/ SDL2 后端），MIT
-├── src/main.cpp       # 移植入口：数据加载、地图枚举、输入层、主循环
-├── CMakeLists.txt     # 交叉编译配置
-├── toolchain.cmake    # devkitA64 toolchain
-└── build.sh           # 一键构建 -> .nro
+```sh
+./build.sh
+# build/StarCraft-switch.nro、StarCraft-switch.nso、StarCraft-switch.nacp
+KEYS_FILE=/private/path/prod.keys HACBREWPACK=/path/to/hacbrewpack ./package-nsp.sh
+# build/StarCraft-Switch-0.2.0-test.nsp
 ```
 
-## 来源与许可
+密钥仅本地使用，不应提交或加入发布包。NSP title ID：`0100534352460000`。
+打包工具：[hacBrewPack](https://github.com/rlaphoenix/hacBrewPack)（GPLv2）；NPDM 配置由其模板适配。
 
-- OpenBW: https://github.com/OpenBW/openbw（MIT）
-- 游戏数据：用户本地正版《星际争霸 V1.16.1 完美硬盘版》，未打包进工程
+## 验证
+
+- AArch64 原生交叉编译及 NRO/NSO 导出。
+- 地图枚举回归：SCX、混合大小写、嵌套目录、目录符号链接、稳定排序和缺失目录。
+- SDL 输入状态回归：映射控制器复用、手柄拖选、触屏点击/拖选/释放、断连释放。
+- 既有 ELF/Pandora 审计测试。
+- 打包后结构检查只能确认 NSP/NCA 容器及元数据，不能替代 Switch 实机验证。
+
+## 来源
+
+OpenBW：https://github.com/OpenBW/openbw（MIT）。修改保留在 `openbw/ui/`，通过可选标志启用游戏命令。
+SDL2：zlib 许可证；Mesa、libdrm_nouveau、libnx：各自 MIT 等许可证。
+图标用内置图像生成工具，根据用户参考图生成。提示词：方形、Kerrigan 居中、人类左侧、Protoss 右侧，绿色黑色氛围，STARCRAFT / BROOD WAR 金属标题，无水印。

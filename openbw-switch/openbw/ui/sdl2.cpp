@@ -69,9 +69,10 @@ struct window_impl {
 	}
 
 	void get_cursor_pos(int* x, int* y) {
-		SDL_GetMouseState(x, y);
+        *x = cursor_x; *y = cursor_y;
 	}
 	
+	int cursor_x = 0, cursor_y = 0;
 	std::array<bool, 512> key_state {};
 	std::array<bool, 6> mouse_button_state {};
 
@@ -80,6 +81,7 @@ struct window_impl {
 		while (SDL_PollEvent(&sdl_e)) {
 			switch (sdl_e.type) {
 			case SDL_MOUSEMOTION:
+                cursor_x = sdl_e.motion.x; cursor_y = sdl_e.motion.y;
 				e.type = event_t::type_mouse_motion;
 				e.button_state = sdl_e.motion.state;
 				e.mouse_x = sdl_e.motion.x;
@@ -88,6 +90,7 @@ struct window_impl {
 				e.mouse_yrel = sdl_e.motion.yrel;
 				return true;
 			case SDL_MOUSEBUTTONDOWN:
+                cursor_x = sdl_e.button.x; cursor_y = sdl_e.button.y;
 				e.type = event_t::type_mouse_button_down;
 				e.button = sdl_e.button.button;
 				e.mouse_x = sdl_e.button.x;
@@ -96,6 +99,7 @@ struct window_impl {
 				if ((size_t)e.button < mouse_button_state.size()) mouse_button_state[e.button] = true;
 				return true;
 			case SDL_MOUSEBUTTONUP:
+                cursor_x = sdl_e.button.x; cursor_y = sdl_e.button.y;
 				e.type = event_t::type_mouse_button_up;
 				e.button = sdl_e.button.button;
 				e.mouse_x = sdl_e.button.x;
