@@ -11,5 +11,15 @@ jobs:
           submodules: recursive
       - name: Test ELF inspection
         run: python3 -m unittest discover -s tests -v
+      - name: Test map enumeration
+        run: |
+          g++ -std=c++17 tests/test_map_files.cpp -o /tmp/test-maps
+          /tmp/test-maps /tmp/starcraft-test-maps
+      - name: Test controller and touch event transitions
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libsdl2-dev
+          g++ -std=c++17 tests/test_switch_input.cpp -I/usr/include/SDL2 -o /tmp/test-input
+          /tmp/test-input
       - name: Build upstream translation tools
         run: make -C vendor/ia32rtools/tools -j2

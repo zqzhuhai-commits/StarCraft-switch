@@ -559,6 +559,9 @@ struct ui_functions: ui_util_functions {
 
 	bool exit_on_close = true;
 	bool window_closed = false;
+    // Opt-in: upstream UI remains a replay viewer by default.
+    bool enable_game_commands = false;
+    int command_owner = 0;
 
 	xy screen_pos;
 
@@ -1822,6 +1825,20 @@ struct ui_functions: ui_util_functions {
 							drag_select_to_y = e.mouse_y;
 						}
 					} else if (e.button == 3) {
+                        if (enable_game_commands) {
+                            a_vector<unit_t*> selection;
+                            for (auto id : current_selection) {
+                                auto* unit = get_unit(id);
+                                if (unit && unit->owner == command_owner && selection.size() < 12) selection.push_back(unit);
+                            }
+                            if (!selection.empty()) {
+                                action_select(command_owner, selection);
+                                xy pos = screen_pos + xy((fp16::integer(e.mouse_x) / view_scale).integer_part(), (fp16::integer(e.mouse_y) / view_scale).integer_part());
+                                action_default_order(command_owner, pos, select_get_unit_at(pos), nullptr,
+                                    wnd.get_key_state(225) || wnd.get_key_state(229));
+                            }
+                            break;
+                        }
 						is_dragging_screen = true;
 						drag_screen_pos = screen_pos + xy((fp16::integer(e.mouse_x) / view_scale).integer_part(), (fp16::integer(e.mouse_y) / view_scale).integer_part());
 					}
