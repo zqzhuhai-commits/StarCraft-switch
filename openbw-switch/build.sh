@@ -17,7 +17,7 @@ cd $BUILD
 cmake .. -DCMAKE_TOOLCHAIN_FILE=../toolchain.cmake
 make -j$(nproc)
 
-elf2nro openbw-switch openbw-switch.nro --icon=../icon.png
+elf2nro openbw-switch openbw-switch.nro --icon=../icon.jpg --nacp=../StarCraft-switch.nacp
 
 ls -la openbw-switch.nro
 echo "DONE: build/openbw-switch.nro (copy to sdmc:/switch/StarCraft/StarCraft-switch.nro)"
