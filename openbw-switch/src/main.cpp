@@ -1,6 +1,6 @@
 // StarCraft 1.16.1 (Brood War) for Nintendo Switch
 // Native port using the OpenBW engine (bwgame.h) + SDL2 UI backend.
-// Loads game data and maps from SD card: sdmc:/StarCraft/
+// Loads game data and maps from SD card: sdmc:/switch/StarCraft/
 // Input: right stick / touch -> mouse, A/B -> left/right click, left stick -> camera scroll
 #include "ui.h"
 #include "common.h"
@@ -23,7 +23,7 @@ namespace ui {
 void log_str(a_string str) {
 	fwrite(str.data(), str.size(), 1, stdout);
 	fflush(stdout);
-	if (!log_file) log_file = fopen("sdmc:/StarCraft/log.txt", "wb");
+	if (!log_file) log_file = fopen("sdmc:/switch/StarCraft/log.txt", "wb");
 	if (log_file) {
 		fwrite(str.data(), str.size(), 1, log_file);
 		fflush(log_file);
@@ -192,7 +192,7 @@ int main() {
 
 	SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER);
 
-	auto load_data_file = data_loading::data_files_directory("sdmc:/StarCraft/");
+	auto load_data_file = data_loading::data_files_directory("sdmc:/switch/StarCraft/");
 
 	game_player player(load_data_file);
 
@@ -211,11 +211,11 @@ int main() {
 		return 1;
 	}
 
-	// pick a map from sdmc:/StarCraft/maps/
-	auto maps = find_maps_in("sdmc:/StarCraft/maps");
+	// pick a map from sdmc:/switch/StarCraft/maps/
+	auto maps = find_maps_in("sdmc:/switch/StarCraft/maps");
 	log("%d maps found\n", (int)maps.size());
 	if (maps.empty()) {
-		log("no maps found in sdmc:/StarCraft/maps\n");
+		log("no maps found in sdmc:/switch/StarCraft/maps\n");
 		return 2;
 	}
 	std::string map_path = maps[0];

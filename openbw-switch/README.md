@@ -21,14 +21,22 @@
 # 产物: build/openbw-switch.nro
 ```
 
-## 部署（SD 卡）
+## 部署（SD 卡 · 单文件夹自包含）
 
-1. 把 `.nro` 复制到 `sdmc:/switch/`（hbmenu 显示 "openbw-switch"）。
-2. 把星际 1.16.1 游戏文件复制到 `sdmc:/StarCraft/`：
-   - 必需：`StarDat.mpq`、`BrooDat.mpq`、`Patch_rt.mpq`
-   - 可选：`maps/`（遭遇战/战役地图，程序自动加载第一张 `.scm`/`.scc`）
-   - 日志写入 `sdmc:/StarCraft/log.txt`
-3. hbmenu 启动，进入后自动加载 `sdmc:/StarCraft/maps/` 下第一张地图开始对战。
+1. 把 `StarCraft-switch.nro` 与游戏文件放进 SD 卡 **`sdmc:/switch/StarCraft/`**：
+
+```
+switch/StarCraft/
+├── StarCraft-switch.nro     ← 主程序（hbmenu 内浏览到该目录启动）
+├── StarDat.mpq              ← 必需
+├── BrooDat.mpq              ← 必需
+├── Patch_rt.mpq             ← 必需
+└── maps/                    ← 遭遇战/战役地图（自动加载第一张 .scm/.scc）
+```
+
+2. hbmenu 启动后浏览到 `switch/StarCraft/`，运行 `StarCraft-switch.nro`，
+   自动加载 `maps/` 下第一张地图开始对战。
+3. 日志写入 `sdmc:/switch/StarCraft/log.txt`。
 
 ## 操作映射
 

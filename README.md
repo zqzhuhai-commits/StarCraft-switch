@@ -8,7 +8,7 @@
 逻辑逐帧对齐原版 1.16.1，包含**完整原版 AI**（战役/遭遇战电脑玩家）。
 
 - 交叉编译链路已验证：devkitA64 + libnx + switch-sdl2 + mesa → `openbw-switch.nro`（HOMEBREW/NRO0）。
-- 数据与地图从 SD 卡加载（`sdmc:/StarCraft/`，需 StarDat/BrooDat/Patch_rt.mpq）。
+- 数据与地图从 SD 卡加载（`sdmc:/switch/StarCraft/`，需 StarDat/BrooDat/Patch_rt.mpq）。
 - 手柄/触屏 → 鼠标输入层已完成，自动加载第一张地图开始对战。
 - 详见 [`openbw-switch/`](openbw-switch/)（构建、部署、操作映射、待办清单）。
 
