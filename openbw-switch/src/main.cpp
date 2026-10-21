@@ -192,6 +192,17 @@ int main() {
 
 	SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER);
 
+	// pre-check required game data on SD card
+	{
+		const char* needed_files[] = {"StarDat.mpq", "BrooDat.mpq", "Patch_rt.mpq"};
+		for (const char* f : needed_files) {
+			std::string p = std::string("sdmc:/switch/StarCraft/") + f;
+			FILE* t = fopen(p.c_str(), "rb");
+			if (!t) log("MISSING %s\n", p.c_str());
+			else { fclose(t); log("ok    %s\n", p.c_str()); }
+		}
+	}
+
 	auto load_data_file = data_loading::data_files_directory("sdmc:/switch/StarCraft/");
 
 	game_player player(load_data_file);
