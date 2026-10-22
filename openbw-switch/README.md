@@ -7,4 +7,4 @@
 KEYS_FILE=/private/path/prod.keys HACBREWPACK=/path/to/hacbrewpack ./package-nsp.sh
 ```
 
-产物 `build/StarCraft-Switch-0.3.0-skirmish-test.nsp`，NSP 内嵌原生引擎，游戏 MPQ 和地图从 SD 加载。本版本尚未经过实际游戏资源与 Switch 实机验证。
+产物 `build/StarCraft-Switch-0.3.0-skirmish-test.nsp`，NSP 内嵌原生引擎，可通过 `ROMFS_DIR=/path/to/game-data` 内嵌 MPQ 和 maps；未内嵌时从 SD 加载。已使用实际资源推进 16,000 逻辑帧；尚未经过 Switch 实机验证。

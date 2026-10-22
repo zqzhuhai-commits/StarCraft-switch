@@ -28,16 +28,21 @@ Path(sys.argv[2]).write_text("".join(name + " = " + value + "\n" for name, value
 PYKEYS
 test -s build/StarCraft-switch.nso
 test -s build/StarCraft-switch.nacp
+rm -rf build/package
 mkdir -p build/package/exefs build/package/control build/package/output
 cp build/StarCraft-switch.nso build/package/exefs/main
 npdmtool npdm.json build/package/exefs/main.npdm
 cp build/StarCraft-switch.nacp build/package/control/control.nacp
 cp icon.jpg build/package/control/icon_AmericanEnglish.dat
+ROMFS_ARGS=(--noromfs)
+if [[ -n "${ROMFS_DIR:-}" ]]; then
+  ROMFS_ARGS=(--romfsdir "$(realpath "$ROMFS_DIR")")
+fi
 "$HACBREWPACK" -k "$KEY_SUBSET" --keygeneration 1 --titleid 0100534352460000 \
   --titlename "星际争霸" --titlepublisher "StarCraft Switch Community" \
   --exefsdir build/package/exefs --controldir build/package/control \
   --nspdir build/package/output --tempdir build/package/temp \
   --ncadir build/package/nca --backupdir build/package/backup \
-  --noromfs --nologo
+  "${ROMFS_ARGS[@]}" --nologo
 cp build/package/output/0100534352460000.nsp build/StarCraft-Switch-0.3.0-skirmish-test.nsp
 printf 'Created build/StarCraft-Switch-0.3.0-skirmish-test.nsp\n'

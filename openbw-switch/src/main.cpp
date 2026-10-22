@@ -106,6 +106,11 @@ int run_game() {
 		}
 	}
 
+    std::string data_root="sdmc:/switch/StarCraft/";
+    if(R_SUCCEEDED(romfsMountSelf("romfs"))) {
+        FILE* probe=fopen("romfs:/StarDat.mpq","rb");
+        if(probe) { fclose(probe); data_root="romfs:/"; }
+    }
 	log_file = fopen("sdmc:/switch/StarCraft/log.txt", "wb");
     log("boot: fsdev mounted result=%08x\n", (unsigned)fsdev_r);
 
@@ -114,25 +119,25 @@ int run_game() {
 		const char* needed_files[] = {"StarDat.mpq", "BrooDat.mpq", "Patch_rt.mpq"};
 		bool ok = true;
 		for (const char* f : needed_files) {
-			std::string p = std::string("sdmc:/switch/StarCraft/") + f;
+			std::string p = data_root + f;
 			FILE* t = fopen(p.c_str(), "rb");
 			if (!t) { log("MISSING %s\n", p.c_str()); ok = false; }
 			else { fclose(t); log("ok    %s\n", p.c_str()); }
 		}
 		if (!ok) {
 			log("ABORT: missing game data in sdmc:/switch/StarCraft/\n");
-			printf("Missing MPQ data. See switch/StarCraft/log.txt.\nPress + to exit.\n");
+			printf("Missing MPQ data at %s. See switch/StarCraft/log.txt.\nPress + to exit.\n", data_root.c_str());
             size_t unused = 0;
             wait_console(false, {}, unused);
             consoleExit(NULL);
             return 3;
 		}
 	}
-	auto maps = starcraft::find_maps("sdmc:/switch/StarCraft/maps");
-	log("%d maps found in sdmc:/switch/StarCraft/maps\n", (int)maps.size());
+	auto maps = starcraft::find_maps(data_root + "maps");
+	log("%d maps found in %s maps\n", (int)maps.size(), data_root.c_str());
 	if (maps.empty()) {
 		log("ABORT: no .scm/.scc maps found\n");
-		printf("No .scm/.scx/.scc maps in switch/StarCraft/maps.\nPress + to exit.\n");
+		printf("No .scm/.scx/.scc maps at %s maps.\nPress + to exit.\n", data_root.c_str());
         size_t unused = 0;
         wait_console(false, {}, unused);
         consoleExit(NULL);
@@ -147,7 +152,7 @@ int run_game() {
 	{
 		const char* needed_files[] = {"StarDat.mpq", "BrooDat.mpq", "Patch_rt.mpq"};
 		for (const char* f : needed_files) {
-			std::string p = std::string("sdmc:/switch/StarCraft/") + f;
+			std::string p = data_root + f;
 			FILE* t = fopen(p.c_str(), "rb");
 			if (t) {
 				fseek(t, 0, SEEK_END);
@@ -171,7 +176,7 @@ int run_game() {
 
 	if (sdl_r != 0) { SDL_Quit(); return 1; }
 
-    auto load_data_file = data_loading::data_files_directory("sdmc:/switch/StarCraft/");
+    auto load_data_file = data_loading::data_files_directory(data_root);
 
 	log("creating game_player...\n");
 	game_player player(load_data_file);
@@ -200,30 +205,7 @@ int run_game() {
 	}
 	log("window created at t=%.1fs\n", now_sec());
 
-    // Native 1v1 skirmish: map terrain/resources, fresh Terran bases, no
-    // unsupported campaign triggers or Blizzard AI scripts.
-    game_load_functions loader(u.st);
-    loader.setup_info.starting_units = 1;
-    loader.setup_info.resource_type = 1;
-    loader.setup_info.starting_minerals = 50;
-    loader.load_map_file(map_path, [&] {
-        std::vector<int> slots;
-        for (int i=0;i<8;++i) {
-            int c=u.st.players[i].controller;
-            if(c==player_t::controller_open || c==player_t::controller_computer || c==player_t::controller_occupied || c==player_t::controller_computer_game) slots.push_back(i);
-        }
-        if(slots.size()<2) throw std::runtime_error("Skirmish needs a map with at least two player slots/start locations");
-        u.command_owner=slots[0]; u.bot_owner=slots[1];
-        for(int i=0;i<8;++i) {
-            u.st.players[i].controller=(i==u.command_owner || i==u.bot_owner) ? player_t::controller_occupied : player_t::controller_closed;
-            u.st.players[i].race=race_t::terran;
-            u.st.players[i].force=0;
-            for(int j=0;j<8;++j) u.st.alliances[i][j]=(i==j);
-        }
-    });
-    if(u.game_st.start_locations[u.command_owner] == u.game_st.start_locations[u.bot_owner])
-        throw std::runtime_error("Map has missing or duplicate start locations; choose a standard 1v1 melee map");
-    log("native skirmish: player=%d bot=%d\n",u.command_owner,u.bot_owner);
+    u.load_skirmish(map_path);
 	log("map loaded at t=%.1fs\n", now_sec());
 
 	u.resize(screen_width, screen_height);

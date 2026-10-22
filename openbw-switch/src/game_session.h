@@ -207,6 +207,34 @@ struct game_session : ui_functions {
         fill_rectangle(data,pitch,{{cursor_x,cursor_y-7},{cursor_x+1,cursor_y+8}},255);
     }
 
+    void load_skirmish(const std::string& map_path) {
+        auto& u=*this;
+    // Native 1v1 skirmish: map terrain/resources, fresh Terran bases, no
+    // unsupported campaign triggers or Blizzard AI scripts.
+    game_load_functions loader(u.st);
+    loader.setup_info.starting_units = 1;
+    loader.setup_info.resource_type = 1;
+    loader.setup_info.starting_minerals = 50;
+    loader.load_map_file(map_path, [&] {
+        std::vector<int> slots;
+        for (int i=0;i<8;++i) {
+            int c=u.st.players[i].controller;
+            if(c==player_t::controller_open || c==player_t::controller_computer || c==player_t::controller_occupied || c==player_t::controller_computer_game) slots.push_back(i);
+        }
+        if(slots.size()<2) throw std::runtime_error("Skirmish needs a map with at least two player slots/start locations");
+        u.command_owner=slots[0]; u.bot_owner=slots[1];
+        for(int i=0;i<8;++i) {
+            u.st.players[i].controller=(i==u.command_owner || i==u.bot_owner) ? player_t::controller_occupied : player_t::controller_closed;
+            u.st.players[i].race=race_t::terran;
+            u.st.players[i].force=0;
+            for(int j=0;j<8;++j) u.st.alliances[i][j]=(i==j);
+        }
+    });
+    if(u.game_st.start_locations[u.command_owner] == u.game_st.start_locations[u.bot_owner])
+        throw std::runtime_error("Map has missing or duplicate start locations; choose a standard 1v1 melee map");
+    bwgame::ui::log("native skirmish: player=%d bot=%d\n",u.command_owner,u.bot_owner);
+    }
+
     void tick_bot();
     void check_result() {
         if(bot_owner<0 || !result.empty()) return;

@@ -1,6 +1,6 @@
 # 0.3.0 原生遭遇战开发版
 
-此版本提供标准地图上的人族 1 对 1 遭遇战入口，仍需真实游戏资源和 Switch 实机验证。不是完整原版中文版，也不支持原版战役 AI。
+此版本提供标准地图上的人族 1 对 1 遭遇战入口，已使用用户资源做主机端逻辑测试，仍需 Switch 实机验证。不是完整原版中文版，也不支持原版战役 AI。
 
 ## 运行内容
 
@@ -30,7 +30,7 @@
 
 ## 数据与安装
 
-NSP 内嵌原生 NSO，引擎不依赖外置 NRO。游戏数据仍需放在 SD：
+NSP 内嵌原生 NSO，引擎不依赖外置 NRO。设置 `ROMFS_DIR` 打包时可内嵌游戏 MPQ 和地图；启动优先读取内嵌数据，没有内嵌数据时从 SD 读取：
 
 ```
 switch/StarCraft/StarDat.mpq
@@ -38,6 +38,8 @@ switch/StarCraft/BrooDat.mpq
 switch/StarCraft/Patch_rt.mpq
 switch/StarCraft/maps/example.scx
 ```
+
+本次单文件 NSP 使用用户提供的 MPQ 与 Bottleneck 标准双人地图。游戏资源和主机密钥不会提交到公开仓库。
 
 日志位于 `switch/StarCraft/log.txt`。首次请使用普通双人遭遇战地图，不使用战役或 UMS 地图。
 
@@ -47,8 +49,21 @@ switch/StarCraft/maps/example.scx
 - 主机回归：地图递归扫描/大小写/符号链接；手柄连接、拖动、触屏按下松开、断连释放；WAV 转换、播放、停止和销毁时释放通道。
 - HUD 测试：面板点击/释放、攻击模式取消、键盘焦点、底部/右侧绘制边界。AddressSanitizer 检查；环境限制关闭 LeakSanitizer。上游侵入式链表用空指针计算成员偏移，会触发 UBSan，不能声称完整 UBSan 通过。
 - 现有 7 项 Python 审计测试不验证游戏游玩。
-- 未验证：实际 MPQ 和地图加载后的完整对战、真实音频、NSP 安装与实机帧率。没有实机通过证据。
+- 真实资源集成测试：用户提供的 1.16.1 MPQ、`(2)Bottleneck.scm`，加载图像、地形、单位后推进 16,000 逻辑帧（相当于约 11 分钟游戏时间），无异常退出。电脑从基地与工人起步，最终有 12 名工人、20 名陆战队和 8 座建筑；这验证了采矿、生产和建造链路，不等同于 Switch 实机通过。
+- 未验证：真实设备上的音频、NSP 安装、触屏与按键手感、帧率和完整胜负流程。没有实机通过证据。
 
 ## 尚未完成
 
 原版主菜单、三族完整技能面板、中文字体和文本、原版 AI、战役、存读档、联网。当前引擎仍有未实现分支；生成 NSP 不能证明所有地图/单位/建筑行为正确。
+
+## 可复现的真实资源测试
+
+`tests/native_skirmish_smoke.cpp` 复用生产程序的 `load_skirmish`、命令面板、bot 和逻辑帧实现。为测试经济链路，前 8,000 帧在测试程序内也自动操作玩家一侧；正式程序不会自动操作玩家。它需要本地 MPQ 和地图，不会在 CI 或仓库中携带这些资源。
+
+```sh
+g++ -std=c++17 -O1 -DOPENBW_NO_SDL_IMAGE -DOPENBW_NO_SDL_MIXER \
+  -Iopenbw-switch/openbw/ui -Iopenbw-switch/openbw $(sdl2-config --cflags) \
+  tests/native_skirmish_smoke.cpp openbw-switch/openbw/ui/sdl2.cpp \
+  $(sdl2-config --libs) -pthread -o /tmp/starcraft-smoke
+SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy /tmp/starcraft-smoke /path/to/data /path/to/map.scm
+```
