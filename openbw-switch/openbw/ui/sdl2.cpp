@@ -15,6 +15,9 @@
 #include <cstdlib>
 #include <memory>
 #include <csignal>
+#include <vector>
+#include <algorithm>
+#include <cstring>
 
 using bwgame::ui::log;
 using bwgame::ui::fatal_error;
@@ -69,9 +72,10 @@ struct window_impl {
 	}
 
 	void get_cursor_pos(int* x, int* y) {
-		SDL_GetMouseState(x, y);
+        *x = cursor_x; *y = cursor_y;
 	}
 	
+	int cursor_x = 0, cursor_y = 0;
 	std::array<bool, 512> key_state {};
 	std::array<bool, 6> mouse_button_state {};
 
@@ -80,6 +84,7 @@ struct window_impl {
 		while (SDL_PollEvent(&sdl_e)) {
 			switch (sdl_e.type) {
 			case SDL_MOUSEMOTION:
+                cursor_x = sdl_e.motion.x; cursor_y = sdl_e.motion.y;
 				e.type = event_t::type_mouse_motion;
 				e.button_state = sdl_e.motion.state;
 				e.mouse_x = sdl_e.motion.x;
@@ -88,6 +93,7 @@ struct window_impl {
 				e.mouse_yrel = sdl_e.motion.yrel;
 				return true;
 			case SDL_MOUSEBUTTONDOWN:
+                cursor_x = sdl_e.button.x; cursor_y = sdl_e.button.y;
 				e.type = event_t::type_mouse_button_down;
 				e.button = sdl_e.button.button;
 				e.mouse_x = sdl_e.button.x;
@@ -96,6 +102,7 @@ struct window_impl {
 				if ((size_t)e.button < mouse_button_state.size()) mouse_button_state[e.button] = true;
 				return true;
 			case SDL_MOUSEBUTTONUP:
+                cursor_x = sdl_e.button.x; cursor_y = sdl_e.button.y;
 				e.type = event_t::type_mouse_button_up;
 				e.button = sdl_e.button.button;
 				e.mouse_x = sdl_e.button.x;
@@ -230,6 +237,7 @@ struct palette_impl : palette {
 
 struct sdl_surface: surface {
 	SDL_Surface* surf = nullptr;
+	bool owned = true;
 	void set(SDL_Surface* surf) {
 		this->surf = surf;
 		w = surf->w;
@@ -238,7 +246,7 @@ struct sdl_surface: surface {
 	}
 
 	virtual ~sdl_surface() override {
-		if (surf) SDL_FreeSurface(surf);
+		if (surf && owned) SDL_FreeSurface(surf);
 	}
 	virtual void set_palette(palette* pal) override {
 		if (SDL_SetSurfacePalette(surf, ((palette_impl*)pal)->pal)) fatal_error("SDL_SetSurfacePalette failed: %s", SDL_GetError());
@@ -304,6 +312,7 @@ std::unique_ptr<surface> get_window_surface(native_window::window* wnd) {
 	if (!surf) fatal_error("SDL_GetWindowSurface failed: %s", SDL_GetError());
 	auto r = std::make_unique<sdl_surface>();
 	r->set(surf);
+	r->owned = false;
 	return std::unique_ptr<surface>(r.release());
 }
 
@@ -426,29 +435,87 @@ std::unique_ptr<sound> load_wav(const void* data, size_t size) {
 }
 
 #else
-
-void init() {
-}
-
-struct sdl_sound: sound {
-	virtual ~sdl_sound() override {}
+// SDL's core WAV decoder and audio callback provide native sound without
+// requiring SDL_mixer or its codec dependencies on Switch.
+struct sdl_sound;
+struct voice { const sdl_sound* clip=nullptr; size_t position=0; int volume=128, pan=0; };
+static std::array<voice,64> voices{};
+static SDL_AudioDeviceID device=0;
+static SDL_AudioSpec output{};
+struct sdl_sound : sound {
+    std::vector<Sint16> samples;
+    ~sdl_sound() override {
+        if(device) SDL_LockAudioDevice(device);
+        for(auto& v:voices) if(v.clip==this) v.clip=nullptr;
+        if(device) SDL_UnlockAudioDevice(device);
+    }
 };
-
-void play(int channel, sound* arg_s, int volume, int pan) {
+static void mix_audio(void*,Uint8* stream,int bytes) {
+    std::memset(stream,0,bytes);
+    auto* dst=reinterpret_cast<Sint16*>(stream);
+    for(auto& v:voices) {
+        if(!v.clip) continue;
+        size_t count=std::min(size_t(bytes/2),v.clip->samples.size()-v.position);
+        for(size_t i=0;i<count;++i) {
+            int gain=v.volume;
+            if(i%2==0 && v.pan>0) gain=gain*(128-v.pan)/128;
+            if(i%2==1 && v.pan<0) gain=gain*(128+v.pan)/128;
+            int sample=dst[i]+int(v.clip->samples[v.position+i])*gain/128;
+            dst[i]=Sint16(std::clamp(sample,-32768,32767));
+        }
+        v.position+=count;
+        if(v.position==v.clip->samples.size()) v.clip=nullptr;
+    }
 }
-
+void init() {
+    if(initialized) return;
+    initialized=true;
+    if(SDL_InitSubSystem(SDL_INIT_AUDIO)!=0) { log("audio init failed: %s\n",SDL_GetError()); return; }
+    SDL_AudioSpec wanted{};
+    wanted.freq=frequency?frequency:44100; wanted.format=AUDIO_S16SYS;
+    wanted.channels=2; wanted.samples=1024; wanted.callback=mix_audio;
+    device=SDL_OpenAudioDevice(nullptr,0,&wanted,&output,0);
+    if(!device) { log("audio device failed: %s\n",SDL_GetError()); return; }
+    SDL_PauseAudioDevice(device,0);
+}
+void play(int channel,sound* clip,int volume,int pan) {
+    init(); if(!device || !clip) return;
+    auto* s=static_cast<sdl_sound*>(clip); if(s->samples.empty()) return;
+    SDL_LockAudioDevice(device);
+    if(channel<0) { for(int i=0;i<int(voices.size());++i) if(!voices[i].clip) { channel=i; break; } }
+    if(channel>=0 && channel<int(voices.size())) voices[channel]={s,0,std::clamp(volume,0,128),std::clamp(pan,-128,128)};
+    SDL_UnlockAudioDevice(device);
+}
 bool is_playing(int channel) {
-	return false;
+    if(!device || channel<0 || channel>=int(voices.size())) return false;
+    SDL_LockAudioDevice(device); bool playing=voices[channel].clip!=nullptr; SDL_UnlockAudioDevice(device);
+    return playing;
 }
-
 void stop(int channel) {
+    if(!device) return;
+    SDL_LockAudioDevice(device);
+    if(channel<0) for(auto& v:voices) v.clip=nullptr;
+    else if(channel<int(voices.size())) voices[channel].clip=nullptr;
+    SDL_UnlockAudioDevice(device);
 }
-
-void set_volume(int channel, int volume) {
+void set_volume(int channel,int volume) {
+    if(!device || channel<0 || channel>=int(voices.size())) return;
+    SDL_LockAudioDevice(device); voices[channel].volume=std::clamp(volume,0,128); SDL_UnlockAudioDevice(device);
 }
-
-std::unique_ptr<sound> load_wav(const void* data, size_t size) {
-	return nullptr;
+std::unique_ptr<sound> load_wav(const void* data,size_t size) {
+    init(); if(!device || size>size_t(INT32_MAX)) return {};
+    SDL_AudioSpec source{}; Uint8* wav=nullptr; Uint32 length=0;
+    if(!SDL_LoadWAV_RW(SDL_RWFromConstMem(data,int(size)),1,&source,&wav,&length)) return {};
+    SDL_AudioCVT cvt{};
+    if(SDL_BuildAudioCVT(&cvt,source.format,source.channels,source.freq,output.format,output.channels,output.freq)<0) { SDL_FreeWAV(wav); return {}; }
+    std::vector<Uint8> converted(size_t(length)*std::max(1,cvt.len_mult));
+    std::memcpy(converted.data(),wav,length); SDL_FreeWAV(wav);
+    cvt.buf=converted.data(); cvt.len=int(length);
+    if(cvt.needed && SDL_ConvertAudio(&cvt)<0) return {};
+    size_t bytes=cvt.needed?size_t(cvt.len_cvt):size_t(length);
+    auto clip=std::make_unique<sdl_sound>(); clip->samples.resize(bytes/2);
+    std::memcpy(clip->samples.data(),converted.data(),bytes/2*2);
+    return clip;
 }
 
 #endif

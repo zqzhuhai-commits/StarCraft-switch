@@ -1,3 +1,4 @@
+#pragma once
 #include "common.h"
 #include "../bwgame.h"
 #include "../replay.h"
@@ -559,6 +560,9 @@ struct ui_functions: ui_util_functions {
 
 	bool exit_on_close = true;
 	bool window_closed = false;
+    // Opt-in: upstream UI remains a replay viewer by default.
+    bool enable_game_commands = false;
+    int command_owner = 0;
 
 	xy screen_pos;
 
@@ -1285,7 +1289,7 @@ struct ui_functions: ui_util_functions {
 		size_t height = area.to.y - area.from.y;
 		uint8_t* p = data + data_pitch * (size_t)area.from.y + (size_t)area.from.x;
 		memset(p, index, width);
-		memset(p + data_pitch * height, index, width);
+		memset(p + data_pitch * (height - 1), index, width);
 		for (size_t y = 0; y != height; ++y) {
 			p[data_pitch * y] = index;
 			p[data_pitch * y + width - 1] = index;
@@ -1303,7 +1307,7 @@ struct ui_functions: ui_util_functions {
 		uint32_t* p = data + data_pitch * (size_t)area.from.y + (size_t)area.from.x;
 		for (size_t x = 0; x != width; ++x) {
 			p[x] = color;
-			p[height * data_pitch + x] = color;
+			p[(height - 1) * data_pitch + x] = color;
 		}
 		for (size_t y = 0; y != height; ++y) {
 			p[data_pitch * y] = color;
@@ -1432,6 +1436,8 @@ struct ui_functions: ui_util_functions {
 		line_rectangle(data, data_pitch, rect{area.from + xy(ox, 0), area.from + xy(ox, 0) + xy(button_w, button_h)}, 51);
 
 	}
+
+	virtual bool handle_game_event(const native_window::event_t&) { return false; }
 
 	virtual void draw_callback(uint8_t* data, size_t data_pitch) {
 	}
@@ -1802,6 +1808,7 @@ struct ui_functions: ui_util_functions {
 		if (wnd) {
 			native_window::event_t e;
 			while (wnd.peek_message(e)) {
+				if (handle_game_event(e)) continue;
 				switch (e.type) {
 				case native_window::event_t::type_quit:
 					if (exit_on_close) std::exit(0);
@@ -1813,7 +1820,7 @@ struct ui_functions: ui_util_functions {
 				case native_window::event_t::type_mouse_button_down:
 					if (e.button == 1) {
 						check_move_minimap(e);
-						check_move_replay_slider(e);
+						if (!enable_game_commands) check_move_replay_slider(e);
 						if (!is_moving_minimap && !is_moving_replay_slider) {
 							is_drag_selecting = true;
 							drag_select_from_x = e.mouse_x;
@@ -1822,6 +1829,20 @@ struct ui_functions: ui_util_functions {
 							drag_select_to_y = e.mouse_y;
 						}
 					} else if (e.button == 3) {
+                        if (enable_game_commands) {
+                            a_vector<unit_t*> selection;
+                            for (auto id : current_selection) {
+                                auto* unit = get_unit(id);
+                                if (unit && unit->owner == command_owner && selection.size() < 12) selection.push_back(unit);
+                            }
+                            if (!selection.empty()) {
+                                action_select(command_owner, selection);
+                                xy pos = screen_pos + xy((fp16::integer(e.mouse_x) / view_scale).integer_part(), (fp16::integer(e.mouse_y) / view_scale).integer_part());
+                                action_default_order(command_owner, pos, select_get_unit_at(pos), nullptr,
+                                    wnd.get_key_state(225) || wnd.get_key_state(229));
+                            }
+                            break;
+                        }
 						is_dragging_screen = true;
 						drag_screen_pos = screen_pos + xy((fp16::integer(e.mouse_x) / view_scale).integer_part(), (fp16::integer(e.mouse_y) / view_scale).integer_part());
 					}

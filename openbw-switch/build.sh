@@ -1,23 +1,14 @@
-#!/bin/bash
-# Build StarCraft (OpenBW engine) for Nintendo Switch -> .nro
-# Requirements: devkitA64 + libnx + switch-sdl2 installed under /opt/devkitpro
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 cd "$(dirname "$0")"
-
-export DEVKITPRO=/opt/devkitpro
-export DEVKITA64=$DEVKITPRO/devkitA64
-export PATH=$DEVKITA64/bin:/opt/devkitpro/tools/bin:$PATH
-export PKG_CONFIG_PATH=$DEVKITPRO/portlibs/switch/lib/pkgconfig
-
-BUILD=build
-rm -rf $BUILD
-mkdir -p $BUILD
-cd $BUILD
-
-cmake .. -DCMAKE_TOOLCHAIN_FILE=../toolchain.cmake
-make -j$(nproc)
-
-elf2nro openbw-switch openbw-switch.nro --icon=../icon.jpg --nacp=../StarCraft-switch.nacp
-
-ls -la openbw-switch.nro
-echo "DONE: build/openbw-switch.nro (copy to sdmc:/switch/StarCraft/StarCraft-switch.nro)"
+export DEVKITPRO="${DEVKITPRO:-/opt/devkitpro}"
+export DEVKITA64="${DEVKITA64:-$DEVKITPRO/devkitA64}"
+export PATH="$DEVKITA64/bin:$DEVKITPRO/tools/bin:$PATH"
+export PKG_CONFIG_LIBDIR="$DEVKITPRO/portlibs/switch/lib/pkgconfig"
+export PKG_CONFIG_PATH="$PKG_CONFIG_LIBDIR"
+cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake
+cmake --build build --parallel "${JOBS:-2}"
+nacptool --create "星际争霸" "StarCraft Switch Community" "0.3.0-skirmish" build/StarCraft-switch.nacp
+elf2nro build/openbw-switch build/StarCraft-switch.nro --icon=icon.jpg --nacp=build/StarCraft-switch.nacp
+elf2nso build/openbw-switch build/StarCraft-switch.nso
+printf 'Built NRO and NSO in %s/build\n' "$PWD"

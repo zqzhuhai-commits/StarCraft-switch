@@ -11,5 +11,23 @@ jobs:
           submodules: recursive
       - name: Test ELF inspection
         run: python3 -m unittest discover -s tests -v
+      - name: Test map enumeration
+        run: |
+          g++ -std=c++17 tests/test_map_files.cpp -o /tmp/test-maps
+          /tmp/test-maps /tmp/starcraft-test-maps
+      - name: Test controller and touch event transitions
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libsdl2-dev
+          g++ -std=c++17 tests/test_switch_input.cpp -I/usr/include/SDL2 -o /tmp/test-input
+          /tmp/test-input
+      - name: Test native HUD and clipped borders
+        run: |
+          g++ -std=c++17 -O0 -fsanitize=address -DOPENBW_NO_SDL_IMAGE -DOPENBW_NO_SDL_MIXER -Iopenbw-switch/openbw/ui -Iopenbw-switch/openbw $(sdl2-config --cflags) tests/test_game_hud.cpp openbw-switch/openbw/ui/sdl2.cpp $(sdl2-config --libs) -o /tmp/test-hud
+          SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy /tmp/test-hud
+      - name: Test native WAV playback lifecycle
+        run: |
+          g++ -std=c++17 -DOPENBW_NO_SDL_IMAGE -DOPENBW_NO_SDL_MIXER $(sdl2-config --cflags) tests/test_native_audio.cpp openbw-switch/openbw/ui/sdl2.cpp $(sdl2-config --libs) -o /tmp/test-audio
+          SDL_AUDIODRIVER=dummy /tmp/test-audio
       - name: Build upstream translation tools
         run: make -C vendor/ia32rtools/tools -j2
