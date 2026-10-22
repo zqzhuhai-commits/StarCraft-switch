@@ -210,13 +210,18 @@ int main() {
 
 	// on-screen text console (visible until SDL initializes)
 	consoleInit(NULL);
-	printf("\nStarCraft Switch port v1.4\n");
-	printf("t=0.000s boot: console ok\n");
+	printf("\nStarCraft Switch v1.5 (NSP/romfs build)\n");
 	fflush(stdout);
 
-	// mount SD into stdio so fopen("sdmc:/...") works
-	Result fsdev_r = fsdevMountSdmc();
-	printf("t=%.3fs fsdevMountSdmc: %08x\n", now_sec(), (unsigned)fsdev_r);
+	// mount SD into stdio so fopen("sdmc:/...") works (fallback data source)
+	fsdevMountSdmc();
+
+	// mount our own RomFS (NSP packaged data). In NSO/title mode this mounts
+	// the romfs section of the NSP; when launched from hbmenu it fails and we
+	// fall back to the SD card.
+	Result romfs_r = romfsMountSelf("romfs");
+	bool use_romfs = R_SUCCEEDED(romfs_r);
+	printf("romfsMountSelf: %08x (%s)\n", (unsigned)romfs_r, use_romfs ? "romfs" : "sdcard fallback");
 
 	// make sure sdmc:/switch/StarCraft exists so log.txt can be written
 	{
@@ -229,45 +234,45 @@ int main() {
 		}
 	}
 
-	log("boot: fsdev mounted\n");
+	std::string data_root = use_romfs ? "romfs:/" : "sdmc:/switch/StarCraft/";
+	log("data source: %s\n", data_root.c_str());
 
 	// ---- data pre-check BEFORE any OpenBW init (missing data = clean abort, no crash) ----
 	{
 		const char* needed_files[] = {"StarDat.mpq", "BrooDat.mpq", "Patch_rt.mpq"};
 		bool ok = true;
 		for (const char* f : needed_files) {
-			std::string p = std::string("sdmc:/switch/StarCraft/") + f;
+			std::string p = data_root + f;
 			FILE* t = fopen(p.c_str(), "rb");
 			if (!t) { log("MISSING %s\n", p.c_str()); ok = false; }
 			else { fclose(t); log("ok    %s\n", p.c_str()); }
 		}
 		if (!ok) {
-			log("ABORT: missing game data in sdmc:/switch/StarCraft/\n");
+			log("ABORT: missing game data at %s\n", data_root.c_str());
 			return 3;
 		}
 	}
-	auto maps = find_maps_in("sdmc:/switch/StarCraft/maps");
-	log("%d maps found in sdmc:/switch/StarCraft/maps\n", (int)maps.size());
-	if (maps.empty()) {
-		log("ABORT: no .scm/.scc maps found\n");
-		return 2;
-	}
-	std::string map_path = maps[0];
-	log("will load map: %s\n", map_path.c_str());
 
-	// report mpq sizes (detect stripped/small data packs)
-	{
-		const char* needed_files[] = {"StarDat.mpq", "BrooDat.mpq", "Patch_rt.mpq"};
-		for (const char* f : needed_files) {
-			std::string p = std::string("sdmc:/switch/StarCraft/") + f;
-			FILE* t = fopen(p.c_str(), "rb");
-			if (t) {
-				fseek(t, 0, SEEK_END);
-				long sz = ftell(t);
-				fclose(t);
-				log("%s: %.1f MB\n", f, (double)sz / (1024.0 * 1024.0));
-			}
+	// map selection: NSP mode -> fixed packaged map; SD mode -> enumerate
+	std::string map_path;
+	if (use_romfs) {
+		map_path = "romfs:/maps/auto.scm";
+		FILE* t = fopen(map_path.c_str(), "rb");
+		if (!t) {
+			log("ABORT: romfs map missing: %s\n", map_path.c_str());
+			return 2;
 		}
+		fclose(t);
+		log("map: %s\n", map_path.c_str());
+	} else {
+		auto maps = find_maps_in("sdmc:/switch/StarCraft/maps");
+		log("%d maps found in sdmc:/switch/StarCraft/maps\n", (int)maps.size());
+		if (maps.empty()) {
+			log("ABORT: no .scm/.scc maps found\n");
+			return 2;
+		}
+		map_path = maps[0];
+		log("will load map: %s\n", map_path.c_str());
 	}
 
 	// release the console framebuffer before SDL takes over the screen
@@ -278,7 +283,7 @@ int main() {
 	int sdl_r = SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER);
 	log("SDL_Init done: %d (%s)\n", sdl_r, sdl_r == 0 ? "ok" : SDL_GetError());
 
-	auto load_data_file = data_loading::data_files_directory("sdmc:/switch/StarCraft/");
+	auto load_data_file = data_loading::data_files_directory(data_root);
 
 	log("creating game_player...\n");
 	game_player player(load_data_file);
