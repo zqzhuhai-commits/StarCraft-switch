@@ -1,0 +1,42 @@
+{
+  "file": "StarCraft-Switch-0.3.0-skirmish-test.nsp",
+  "bytes": 96953560,
+  "sha256": "27df25e00bc73495ef20f201aa101b4fa02eccf69517d5948080458ae104896e",
+  "ncas": [
+    {
+      "name": "a04efdc0b5e2535ac06740f5596625ff.nca",
+      "size": 96782336,
+      "content_type": 0,
+      "title_id": "0100534352460000"
+    },
+    {
+      "name": "6264cf605aabf72b3ef029629a2c03dc.nca",
+      "size": 166912,
+      "content_type": 2,
+      "title_id": "0100534352460000"
+    },
+    {
+      "name": "123bf7529f0d8291253a8d4f0812edf7.cnmt.nca",
+      "size": 4096,
+      "content_type": 1,
+      "title_id": "0100534352460000"
+    }
+  ],
+  "embedded_nso_matches_build": true,
+  "scope": "Native Terran 1v1 skirmish, Bottleneck map, embedded user-supplied game data",
+  "host_integration": {
+    "runs": 2,
+    "frames_each": 16000,
+    "asserted_economy_and_production": true,
+    "visual_inspection": true,
+    "switch_hardware_tested": false
+  },
+  "StarCraft-switch.nro": {
+    "bytes": 8122643,
+    "sha256": "6b2c6c885fca32c7a582650b686e3f81dba93a9e59afb883ecb59be356955fb0"
+  },
+  "StarCraft-switch.nso": {
+    "bytes": 4631576,
+    "sha256": "74617713f844cec050995b9b764b7e07a1da4034b95cc3be20da38922f6d8111"
+  }
+}
