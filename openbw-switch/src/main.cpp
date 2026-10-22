@@ -14,6 +14,8 @@
 #include <cstring>
 #include <vector>
 #include <string>
+#include <algorithm>
+#include <cctype>
 
 using namespace bwgame;
 using ui::log;
@@ -75,7 +77,7 @@ static std::vector<std::string> find_maps_in(const std::string& dir) {
 	FsFileSystem fs;
 	if (R_FAILED(fsOpenSdCardFileSystem(&fs))) return out;
 	FsDir d;
-	if (R_FAILED(fsFsOpenDirectory(&fs, dir.c_str(), FsDirOpenMode_ReadFiles, &d))) {
+	if (R_FAILED(fsFsOpenDirectory(&fs, (dir.compare(0, 5, "sdmc:") == 0 ? dir.substr(5) : dir).c_str(), FsDirOpenMode_ReadFiles, &d))) {
 		fsFsClose(&fs);
 		return out;
 	}
@@ -89,11 +91,13 @@ static std::vector<std::string> find_maps_in(const std::string& dir) {
 		size_t dot = name.rfind('.');
 		if (dot != std::string::npos) {
 			std::string ext = name.substr(dot);
-			if (ext == ".scm" || ext == ".scc" || ext == ".SCM" || ext == ".SCC") {
+			std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return std::tolower(c); });
+			if (ext == ".scm" || ext == ".scx" || ext == ".scc") {
 				out.push_back(dir + "/" + name);
 			}
 		}
 	}
+	std::sort(out.begin(), out.end());
 	fsDirClose(&d);
 	fsFsClose(&fs);
 	return out;
@@ -136,12 +140,17 @@ static void inject_key(SDL_Keycode sym, SDL_Scancode scancode, bool down) {
 
 static void handle_gamepad(input_state& st) {
 	if (!st.have_controller) return;
-	SDL_GameController* gc = SDL_GameControllerOpen(0);
+	SDL_PumpEvents();
+	static SDL_GameController* gc = nullptr;
+	if (gc && !SDL_GameControllerGetAttached(gc)) { SDL_GameControllerClose(gc); gc = nullptr; }
+	if (!gc) for (int i = 0; i < SDL_NumJoysticks(); ++i) {
+		if (SDL_IsGameController(i)) { gc = SDL_GameControllerOpen(i); if (gc) break; }
+	}
 	if (!gc) return;
 	SDL_Joystick* joy = SDL_GameControllerGetJoystick(gc);
 
-	Sint16 rx = SDL_JoystickGetAxis(joy, SDL_CONTROLLER_AXIS_RIGHTX);
-	Sint16 ry = SDL_JoystickGetAxis(joy, SDL_CONTROLLER_AXIS_RIGHTY);
+	Sint16 rx = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_RIGHTX);
+	Sint16 ry = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_RIGHTY);
 	const float deadzone = 6000.0f;
 	float dx = 0, dy = 0;
 	if (rx > deadzone || rx < -deadzone) dx = (float)rx / 32767.0f;
@@ -154,10 +163,10 @@ static void handle_gamepad(input_state& st) {
 	if (st.mouse_y < 0) st.mouse_y = 0;
 	if (st.mouse_x >= 1280) st.mouse_x = 1279;
 	if (st.mouse_y >= 720) st.mouse_y = 719;
-	inject_mouse_move((int)st.mouse_x, (int)st.mouse_y, 0);
+	inject_mouse_move((int)st.mouse_x, (int)st.mouse_y, (st.a_down || st.touch_active ? SDL_BUTTON_LMASK : 0) | (st.b_down ? SDL_BUTTON_RMASK : 0));
 
-	bool a = SDL_JoystickGetButton(joy, SDL_CONTROLLER_BUTTON_A) != 0;
-	bool b = SDL_JoystickGetButton(joy, SDL_CONTROLLER_BUTTON_B) != 0;
+	bool a = SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_A) != 0;
+	bool b = SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_B) != 0;
 	if (a && !st.a_down) inject_mouse_button(SDL_BUTTON_LEFT, true, (int)st.mouse_x, (int)st.mouse_y);
 	if (!a && st.a_down) inject_mouse_button(SDL_BUTTON_LEFT, false, (int)st.mouse_x, (int)st.mouse_y);
 	if (b && !st.b_down) inject_mouse_button(SDL_BUTTON_RIGHT, true, (int)st.mouse_x, (int)st.mouse_y);
@@ -166,8 +175,8 @@ static void handle_gamepad(input_state& st) {
 	st.b_down = b;
 
 	// left stick -> camera scroll (arrow keys, scancodes 79/80/81/82)
-	Sint16 lx = SDL_JoystickGetAxis(joy, SDL_CONTROLLER_AXIS_LEFTX);
-	Sint16 ly = SDL_JoystickGetAxis(joy, SDL_CONTROLLER_AXIS_LEFTY);
+	Sint16 lx = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTX);
+	Sint16 ly = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTY);
 	auto dirkey = [&](SDL_Scancode sc, bool on) {
 		static bool prev[4] = {false, false, false, false};
 		int idx = sc == SDL_SCANCODE_LEFT ? 0 : sc == SDL_SCANCODE_RIGHT ? 1 : sc == SDL_SCANCODE_DOWN ? 2 : 3;
@@ -180,27 +189,23 @@ static void handle_gamepad(input_state& st) {
 	dirkey(SDL_SCANCODE_UP, ly < -15000);
 	dirkey(SDL_SCANCODE_DOWN, ly > 15000);
 
-	SDL_GameControllerClose(gc);
+
 }
 
 static void handle_touch(input_state& st) {
-	SDL_TouchID tid = 0;
-	int n = SDL_GetNumTouchDevices();
-	for (int i = 0; i < n; i++) {
-		tid = SDL_GetTouchDevice(i);
-		int fingers = SDL_GetNumTouchFingers(tid);
-		if (fingers > 0) {
-			SDL_Finger* f = SDL_GetTouchFinger(tid, 0);
-			if (f) {
-				float sx = f->x * 1280.0f;
-				float sy = f->y * 720.0f;
-				st.touch_active = true;
-				inject_mouse_move((int)sx, (int)sy, SDL_BUTTON_LMASK);
-			}
-		} else {
-			st.touch_active = false;
-		}
+	bool active = false;
+	for (int i = 0; i < SDL_GetNumTouchDevices(); ++i) {
+		SDL_Finger* f = SDL_GetTouchFinger(SDL_GetTouchDevice(i), 0);
+		if (!f) continue;
+		active = true;
+		st.mouse_x = std::min(1279.0f, std::max(0.0f, f->x * 1280.0f));
+		st.mouse_y = std::min(719.0f, std::max(0.0f, f->y * 720.0f));
+		if (!st.touch_active && !st.a_down) inject_mouse_button(SDL_BUTTON_LEFT, true, st.mouse_x, st.mouse_y);
+		inject_mouse_move(st.mouse_x, st.mouse_y, SDL_BUTTON_LMASK);
+		break;
 	}
+	if (!active && st.touch_active && !st.a_down) inject_mouse_button(SDL_BUTTON_LEFT, false, st.mouse_x, st.mouse_y);
+	st.touch_active = active;
 }
 
 // ---- main ----
@@ -221,6 +226,10 @@ int main() {
 	// fall back to the SD card.
 	Result romfs_r = romfsMountSelf("romfs");
 	bool use_romfs = R_SUCCEEDED(romfs_r);
+	if (use_romfs) {
+		FILE* probe = fopen("romfs:/StarDat.mpq", "rb");
+		if (probe) fclose(probe); else use_romfs = false;
+	}
 	printf("romfsMountSelf: %08x (%s)\n", (unsigned)romfs_r, use_romfs ? "romfs" : "sdcard fallback");
 
 	// make sure sdmc:/switch/StarCraft exists so log.txt can be written
@@ -283,6 +292,9 @@ int main() {
 	int sdl_r = SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER);
 	log("SDL_Init done: %d (%s)\n", sdl_r, sdl_r == 0 ? "ok" : SDL_GetError());
 
+	if (sdl_r != 0) return 1;
+	SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+
 	auto load_data_file = data_loading::data_files_directory(data_root);
 
 	log("creating game_player...\n");
@@ -313,6 +325,11 @@ int main() {
 	u.player.load_map_file(map_path);
 	log("map loaded at t=%.1fs\n", now_sec());
 
+	u.live_game = true;
+	u.exit_on_close = false;
+	for (int i = 0; i < 8; ++i) {
+		if (u.st.players[i].controller == player_t::controller_occupied) { u.local_player = i; break; }
+	}
 	u.resize(screen_width, screen_height);
 	u.screen_pos = {(int)u.game_st.map_width / 2 - (int)screen_width / 2, (int)u.game_st.map_height / 2 - (int)screen_height / 2};
 	u.set_image_data();
@@ -324,13 +341,13 @@ int main() {
 	st.have_controller = true;
 	int frame = 0;
 	u64 last_tick_log = 0;
-	while (true) {
+	while (appletMainLoop() && !u.window_closed) {
 		handle_gamepad(st);
 		handle_touch(st);
 
 		// OpenBW's update() polls and handles window events internally
 		u.update();
-		u.wnd.update_surface();
+		if (!u.is_paused) u.player.next_frame();
 
 		if (++frame % 120 == 0) {
 			log("t=%.1fs frame %d (alive)\n", now_sec(), frame);

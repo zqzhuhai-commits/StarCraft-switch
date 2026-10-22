@@ -69,9 +69,11 @@ struct window_impl {
 	}
 
 	void get_cursor_pos(int* x, int* y) {
-		SDL_GetMouseState(x, y);
+		*x = cursor_x;
+		*y = cursor_y;
 	}
 	
+	int cursor_x = 0, cursor_y = 0;
 	std::array<bool, 512> key_state {};
 	std::array<bool, 6> mouse_button_state {};
 
@@ -82,6 +84,8 @@ struct window_impl {
 			case SDL_MOUSEMOTION:
 				e.type = event_t::type_mouse_motion;
 				e.button_state = sdl_e.motion.state;
+				cursor_x = sdl_e.motion.x;
+				cursor_y = sdl_e.motion.y;
 				e.mouse_x = sdl_e.motion.x;
 				e.mouse_y = sdl_e.motion.y;
 				e.mouse_xrel = sdl_e.motion.xrel;
@@ -90,6 +94,8 @@ struct window_impl {
 			case SDL_MOUSEBUTTONDOWN:
 				e.type = event_t::type_mouse_button_down;
 				e.button = sdl_e.button.button;
+				cursor_x = sdl_e.button.x;
+				cursor_y = sdl_e.button.y;
 				e.mouse_x = sdl_e.button.x;
 				e.mouse_y = sdl_e.button.y;
 				e.clicks = sdl_e.button.clicks;
@@ -98,6 +104,8 @@ struct window_impl {
 			case SDL_MOUSEBUTTONUP:
 				e.type = event_t::type_mouse_button_up;
 				e.button = sdl_e.button.button;
+				cursor_x = sdl_e.button.x;
+				cursor_y = sdl_e.button.y;
 				e.mouse_x = sdl_e.button.x;
 				e.mouse_y = sdl_e.button.y;
 				e.clicks = sdl_e.button.clicks;
@@ -230,6 +238,7 @@ struct palette_impl : palette {
 
 struct sdl_surface: surface {
 	SDL_Surface* surf = nullptr;
+	bool owned = true;
 	void set(SDL_Surface* surf) {
 		this->surf = surf;
 		w = surf->w;
@@ -238,7 +247,7 @@ struct sdl_surface: surface {
 	}
 
 	virtual ~sdl_surface() override {
-		if (surf) SDL_FreeSurface(surf);
+		if (surf && owned) SDL_FreeSurface(surf);
 	}
 	virtual void set_palette(palette* pal) override {
 		if (SDL_SetSurfacePalette(surf, ((palette_impl*)pal)->pal)) fatal_error("SDL_SetSurfacePalette failed: %s", SDL_GetError());
@@ -304,6 +313,7 @@ std::unique_ptr<surface> get_window_surface(native_window::window* wnd) {
 	if (!surf) fatal_error("SDL_GetWindowSurface failed: %s", SDL_GetError());
 	auto r = std::make_unique<sdl_surface>();
 	r->set(surf);
+	r->owned = false; // SDL owns the window surface.
 	return std::unique_ptr<surface>(r.release());
 }
 
