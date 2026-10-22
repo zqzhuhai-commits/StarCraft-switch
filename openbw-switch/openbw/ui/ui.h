@@ -1394,9 +1394,12 @@ struct ui_functions: ui_util_functions {
 
 	}
 
+	bool live_game = false;
+	int local_player = 0;
 	int replay_frame = 0;
 
 	rect get_replay_slider_area() {
+		if (live_game) return {};
 #ifdef EMSCRIPTEN
 		return {};
 #endif
@@ -1822,6 +1825,18 @@ struct ui_functions: ui_util_functions {
 							drag_select_to_y = e.mouse_y;
 						}
 					} else if (e.button == 3) {
+						if (live_game) {
+							a_vector<unit_t*> units;
+							for (auto id : current_selection) {
+								auto* unit = get_unit(id);
+								if (unit && unit->owner == local_player && units.size() < 12) units.push_back(unit);
+							}
+							action_select(local_player, units);
+							auto pos = screen_pos + xy(e.mouse_x, e.mouse_y);
+							auto* target = select_get_unit_at(pos);
+							action_default_order(local_player, pos, target, target ? target->unit_type : nullptr, false);
+							break;
+						}
 						is_dragging_screen = true;
 						drag_screen_pos = screen_pos + xy((fp16::integer(e.mouse_x) / view_scale).integer_part(), (fp16::integer(e.mouse_y) / view_scale).integer_part());
 					}
