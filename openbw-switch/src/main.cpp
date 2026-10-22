@@ -14,54 +14,26 @@
 #include <cstring>
 #include <vector>
 #include <string>
+#include <stdexcept>
+#include <algorithm>
 
 using namespace bwgame;
 using ui::log;
 
 FILE* log_file = nullptr;
 
-// ---- native fs log writer (independent of fsdev/fopen) ----
-static void fslog_raw(const char* s) {
-	FsFileSystem fs;
-	if (R_FAILED(fsOpenSdCardFileSystem(&fs))) return;
-	FsFile f;
-	if (R_SUCCEEDED(fsFsOpenFile(&fs, "/switch/StarCraft/log.txt", FsOpenMode_Write | FsOpenMode_Append, &f))) {
-		s64 sz = 0;
-		fsFileGetSize(&f, &sz);
-		u64 written = 0;
-		fsFileWrite(&f, sz, s, strlen(s), 0);
-		fsFileClose(&f);
-	}
-	fsFsClose(&fs);
-}
-
-namespace bwgame {
-namespace ui {
-
+namespace bwgame { namespace ui {
 void log_str(a_string str) {
-	fwrite(str.data(), str.size(), 1, stdout);
-	fflush(stdout);
-	// console (visible on screen before SDL takes over)
-	fwrite(str.data(), str.size(), 1, stderr);
-	fflush(stderr);
-	// native fs (always works)
-	fslog_raw(str.c_str());
-	// fsdev fopen (second channel)
-	if (!log_file) log_file = fopen("sdmc:/switch/StarCraft/log.txt", "wb");
-	if (log_file) {
-		fwrite(str.data(), str.size(), 1, log_file);
-		fflush(log_file);
-	}
+    if (log_file) {
+        fwrite(str.data(), 1, str.size(), log_file);
+        fflush(log_file);
+    }
 }
-
 void fatal_error_str(a_string str) {
-	log("fatal error: %s\n", str);
-	SDL_Quit();
-	std::terminate();
+    log("fatal error: %s\n", str);
+    throw std::runtime_error(std::string(str.data(), str.size()));
 }
-
-}
-}
+}}
 
 // ---- timing ----
 static auto t0 = std::chrono::steady_clock::now();
@@ -69,159 +41,59 @@ static double now_sec() {
 	return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
 }
 
-// ---- SD card map enumeration (libnx fs) ----
-static std::vector<std::string> find_maps_in(const std::string& dir) {
-	std::vector<std::string> out;
-	FsFileSystem fs;
-	if (R_FAILED(fsOpenSdCardFileSystem(&fs))) return out;
-	FsDir d;
-	if (R_FAILED(fsFsOpenDirectory(&fs, dir.c_str(), FsDirOpenMode_ReadFiles, &d))) {
-		fsFsClose(&fs);
-		return out;
-	}
-	while (true) {
-		s64 entries = 0;
-		FsDirectoryEntry e;
-		memset(&e, 0, sizeof(e));
-		Result r = fsDirRead(&d, &entries, 1, &e);
-		if (R_FAILED(r) || entries == 0) break;
-		std::string name = e.name;
-		size_t dot = name.rfind('.');
-		if (dot != std::string::npos) {
-			std::string ext = name.substr(dot);
-			if (ext == ".scm" || ext == ".scc" || ext == ".SCM" || ext == ".SCC") {
-				out.push_back(dir + "/" + name);
-			}
-		}
-	}
-	fsDirClose(&d);
-	fsFsClose(&fs);
-	return out;
-}
+// Use stdio paths consistently. Native Fs paths must not include "sdmc:".
+#include "map_files.h"
+#include "switch_input.h"
+#include "game_session.h"
+#include "command_names.h"
+#include "skirmish_bot.h"
 
-// ---- input layer: gamepad/touch -> SDL mouse/keyboard events ----
-struct input_state {
-	bool have_controller = false;
-	float stick_x = 0, stick_y = 0;
-	float mouse_x = 1280 / 2, mouse_y = 720 / 2;
-	bool a_down = false, b_down = false;
-	bool touch_active = false;
-	float touch_x = 0, touch_y = 0;
-};
-
-static void inject_mouse_move(int x, int y, Uint32 state) {
-	SDL_Event e{};
-	e.type = SDL_MOUSEMOTION;
-	e.motion.x = x;
-	e.motion.y = y;
-	e.motion.state = state;
-	SDL_PushEvent(&e);
-}
-static void inject_mouse_button(Uint8 button, bool down, int x, int y) {
-	SDL_Event e{};
-	e.type = down ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
-	e.button.button = button;
-	e.button.x = x;
-	e.button.y = y;
-	e.button.clicks = 1;
-	SDL_PushEvent(&e);
-}
-static void inject_key(SDL_Keycode sym, SDL_Scancode scancode, bool down) {
-	SDL_Event e{};
-	e.type = down ? SDL_KEYDOWN : SDL_KEYUP;
-	e.key.keysym.sym = sym;
-	e.key.keysym.scancode = scancode;
-	SDL_PushEvent(&e);
-}
-
-static void handle_gamepad(input_state& st) {
-	if (!st.have_controller) return;
-	SDL_GameController* gc = SDL_GameControllerOpen(0);
-	if (!gc) return;
-	SDL_Joystick* joy = SDL_GameControllerGetJoystick(gc);
-
-	Sint16 rx = SDL_JoystickGetAxis(joy, SDL_CONTROLLER_AXIS_RIGHTX);
-	Sint16 ry = SDL_JoystickGetAxis(joy, SDL_CONTROLLER_AXIS_RIGHTY);
-	const float deadzone = 6000.0f;
-	float dx = 0, dy = 0;
-	if (rx > deadzone || rx < -deadzone) dx = (float)rx / 32767.0f;
-	if (ry > deadzone || ry < -deadzone) dy = (float)ry / 32767.0f;
-
-	const float mouse_speed = 14.0f;
-	st.mouse_x += dx * mouse_speed;
-	st.mouse_y += dy * mouse_speed;
-	if (st.mouse_x < 0) st.mouse_x = 0;
-	if (st.mouse_y < 0) st.mouse_y = 0;
-	if (st.mouse_x >= 1280) st.mouse_x = 1279;
-	if (st.mouse_y >= 720) st.mouse_y = 719;
-	inject_mouse_move((int)st.mouse_x, (int)st.mouse_y, 0);
-
-	bool a = SDL_JoystickGetButton(joy, SDL_CONTROLLER_BUTTON_A) != 0;
-	bool b = SDL_JoystickGetButton(joy, SDL_CONTROLLER_BUTTON_B) != 0;
-	if (a && !st.a_down) inject_mouse_button(SDL_BUTTON_LEFT, true, (int)st.mouse_x, (int)st.mouse_y);
-	if (!a && st.a_down) inject_mouse_button(SDL_BUTTON_LEFT, false, (int)st.mouse_x, (int)st.mouse_y);
-	if (b && !st.b_down) inject_mouse_button(SDL_BUTTON_RIGHT, true, (int)st.mouse_x, (int)st.mouse_y);
-	if (!b && st.b_down) inject_mouse_button(SDL_BUTTON_RIGHT, false, (int)st.mouse_x, (int)st.mouse_y);
-	st.a_down = a;
-	st.b_down = b;
-
-	// left stick -> camera scroll (arrow keys, scancodes 79/80/81/82)
-	Sint16 lx = SDL_JoystickGetAxis(joy, SDL_CONTROLLER_AXIS_LEFTX);
-	Sint16 ly = SDL_JoystickGetAxis(joy, SDL_CONTROLLER_AXIS_LEFTY);
-	auto dirkey = [&](SDL_Scancode sc, bool on) {
-		static bool prev[4] = {false, false, false, false};
-		int idx = sc == SDL_SCANCODE_LEFT ? 0 : sc == SDL_SCANCODE_RIGHT ? 1 : sc == SDL_SCANCODE_DOWN ? 2 : 3;
-		if (on && !prev[idx]) inject_key(sc == SDL_SCANCODE_LEFT ? SDLK_LEFT : sc == SDL_SCANCODE_RIGHT ? SDLK_RIGHT : sc == SDL_SCANCODE_DOWN ? SDLK_DOWN : SDLK_UP, sc, true);
-		if (!on && prev[idx]) inject_key(sc == SDL_SCANCODE_LEFT ? SDLK_LEFT : sc == SDL_SCANCODE_RIGHT ? SDLK_RIGHT : sc == SDL_SCANCODE_DOWN ? SDLK_DOWN : SDLK_UP, sc, false);
-		prev[idx] = on;
-	};
-	dirkey(SDL_SCANCODE_LEFT, lx < -15000);
-	dirkey(SDL_SCANCODE_RIGHT, lx > 15000);
-	dirkey(SDL_SCANCODE_UP, ly < -15000);
-	dirkey(SDL_SCANCODE_DOWN, ly > 15000);
-
-	SDL_GameControllerClose(gc);
-}
-
-static void handle_touch(input_state& st) {
-	SDL_TouchID tid = 0;
-	int n = SDL_GetNumTouchDevices();
-	for (int i = 0; i < n; i++) {
-		tid = SDL_GetTouchDevice(i);
-		int fingers = SDL_GetNumTouchFingers(tid);
-		if (fingers > 0) {
-			SDL_Finger* f = SDL_GetTouchFinger(tid, 0);
-			if (f) {
-				float sx = f->x * 1280.0f;
-				float sy = f->y * 720.0f;
-				st.touch_active = true;
-				inject_mouse_move((int)sx, (int)sy, SDL_BUTTON_LMASK);
-			}
-		} else {
-			st.touch_active = false;
-		}
-	}
+static bool wait_console(bool choose_map, const std::vector<std::string>& maps, size_t& selected) {
+    PadState pad;
+    padConfigureInput(1, HidNpadStyleSet_NpadStandard);
+    padInitializeDefault(&pad);
+    bool redraw = true;
+    while (appletMainLoop()) {
+        padUpdate(&pad);
+        u64 down = padGetButtonsDown(&pad);
+        if (down & HidNpadButton_Plus) return false;
+        if (choose_map && !maps.empty()) {
+            if (down & HidNpadButton_Down) { selected = (selected + 1) % maps.size(); redraw = true; }
+            if (down & HidNpadButton_Up) { selected = (selected + maps.size() - 1) % maps.size(); redraw = true; }
+            if (down & HidNpadButton_A) return true;
+            if (redraw) {
+                consoleClear();
+                printf("StarCraft Switch - native 1v1 Terran skirmish\n\n");
+                printf("UP/DOWN: map   A: start   +: exit\n\n");
+                printf("Fresh Terran bases vs basic native bot. Use standard melee maps.\n");
+                printf("Campaign / custom scenario triggers are not loaded.\n\n");
+                size_t first = selected / 15 * 15;
+                for (size_t i = first; i < maps.size() && i < first + 15; ++i)
+                    printf("%s %s\n", i == selected ? ">" : " ", maps[i].c_str());
+                printf("\nMap %zu / %zu\n", selected + 1, maps.size());
+                redraw = false;
+            }
+        }
+        consoleUpdate(NULL);
+        svcSleepThread(16000000);
+    }
+    return false;
 }
 
 // ---- main ----
-int main() {
+int run_game() {
 	size_t screen_width = 1280;
 	size_t screen_height = 720;
 
 	// on-screen text console (visible until SDL initializes)
 	consoleInit(NULL);
-	printf("\nStarCraft Switch v1.5 (NSP/romfs build)\n");
+	printf("\nStarCraft Switch port v0.3.0\n");
+	printf("t=0.000s boot: console ok\n");
 	fflush(stdout);
 
-	// mount SD into stdio so fopen("sdmc:/...") works (fallback data source)
-	fsdevMountSdmc();
-
-	// mount our own RomFS (NSP packaged data). In NSO/title mode this mounts
-	// the romfs section of the NSP; when launched from hbmenu it fails and we
-	// fall back to the SD card.
-	Result romfs_r = romfsMountSelf("romfs");
-	bool use_romfs = R_SUCCEEDED(romfs_r);
-	printf("romfsMountSelf: %08x (%s)\n", (unsigned)romfs_r, use_romfs ? "romfs" : "sdcard fallback");
+	// mount SD into stdio so fopen("sdmc:/...") works
+	Result fsdev_r = fsdevMountSdmc();
+	printf("t=%.3fs fsdevMountSdmc: %08x\n", now_sec(), (unsigned)fsdev_r);
 
 	// make sure sdmc:/switch/StarCraft exists so log.txt can be written
 	{
@@ -234,8 +106,13 @@ int main() {
 		}
 	}
 
-	std::string data_root = use_romfs ? "romfs:/" : "sdmc:/switch/StarCraft/";
-	log("data source: %s\n", data_root.c_str());
+    std::string data_root="sdmc:/switch/StarCraft/";
+    if(R_SUCCEEDED(romfsMountSelf("romfs"))) {
+        FILE* probe=fopen("romfs:/StarDat.mpq","rb");
+        if(probe) { fclose(probe); data_root="romfs:/"; }
+    }
+	log_file = fopen("sdmc:/switch/StarCraft/log.txt", "wb");
+    log("boot: fsdev mounted result=%08x\n", (unsigned)fsdev_r);
 
 	// ---- data pre-check BEFORE any OpenBW init (missing data = clean abort, no crash) ----
 	{
@@ -248,48 +125,64 @@ int main() {
 			else { fclose(t); log("ok    %s\n", p.c_str()); }
 		}
 		if (!ok) {
-			log("ABORT: missing game data at %s\n", data_root.c_str());
-			return 3;
+			log("ABORT: missing game data in sdmc:/switch/StarCraft/\n");
+			printf("Missing MPQ data at %s. See switch/StarCraft/log.txt.\nPress + to exit.\n", data_root.c_str());
+            size_t unused = 0;
+            wait_console(false, {}, unused);
+            consoleExit(NULL);
+            return 3;
 		}
 	}
+	auto maps = starcraft::find_maps(data_root + "maps");
+	log("%d maps found in %s maps\n", (int)maps.size(), data_root.c_str());
+	if (maps.empty()) {
+		log("ABORT: no .scm/.scc maps found\n");
+		printf("No .scm/.scx/.scc maps at %s maps.\nPress + to exit.\n", data_root.c_str());
+        size_t unused = 0;
+        wait_console(false, {}, unused);
+        consoleExit(NULL);
+        return 2;
+	}
+	size_t selected = 0;
+    if (!wait_console(true, maps, selected)) { consoleExit(NULL); return 0; }
+    std::string map_path = maps[selected];
+	log("will load map: %s\n", map_path.c_str());
 
-	// map selection: NSP mode -> fixed packaged map; SD mode -> enumerate
-	std::string map_path;
-	if (use_romfs) {
-		map_path = "romfs:/maps/auto.scm";
-		FILE* t = fopen(map_path.c_str(), "rb");
-		if (!t) {
-			log("ABORT: romfs map missing: %s\n", map_path.c_str());
-			return 2;
+	// report mpq sizes (detect stripped/small data packs)
+	{
+		const char* needed_files[] = {"StarDat.mpq", "BrooDat.mpq", "Patch_rt.mpq"};
+		for (const char* f : needed_files) {
+			std::string p = data_root + f;
+			FILE* t = fopen(p.c_str(), "rb");
+			if (t) {
+				fseek(t, 0, SEEK_END);
+				long sz = ftell(t);
+				fclose(t);
+				log("%s: %.1f MB\n", f, (double)sz / (1024.0 * 1024.0));
+			}
 		}
-		fclose(t);
-		log("map: %s\n", map_path.c_str());
-	} else {
-		auto maps = find_maps_in("sdmc:/switch/StarCraft/maps");
-		log("%d maps found in sdmc:/switch/StarCraft/maps\n", (int)maps.size());
-		if (maps.empty()) {
-			log("ABORT: no .scm/.scc maps found\n");
-			return 2;
-		}
-		map_path = maps[0];
-		log("will load map: %s\n", map_path.c_str());
 	}
 
 	// release the console framebuffer before SDL takes over the screen
 	fflush(stdout);
 	consoleExit(NULL);
 
-	log("SDL_Init...\n");
+	// Only our input bridge synthesizes touch clicks (avoid SDL duplicate events).
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+    SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
+    log("SDL_Init...\n");
 	int sdl_r = SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER);
 	log("SDL_Init done: %d (%s)\n", sdl_r, sdl_r == 0 ? "ok" : SDL_GetError());
 
-	auto load_data_file = data_loading::data_files_directory(data_root);
+	if (sdl_r != 0) { SDL_Quit(); return 1; }
+
+    auto load_data_file = data_loading::data_files_directory(data_root);
 
 	log("creating game_player...\n");
 	game_player player(load_data_file);
 	log("game_player ok\n");
 
-	ui_functions ui(std::move(player));
+	starcraft::game_session ui(std::move(player));
 	auto& u = ui;
 
 	log("loading image data... (this can take a while)\n");
@@ -298,9 +191,11 @@ int main() {
 		load_data_file(data, std::move(filename));
 		loaded_bytes += data.size();
 	};
-	u.load_all_image_data(load_data_file);
-	log("image data loaded: %.1f MB in %.1fs\n", (double)loaded_bytes / (1024.0 * 1024.0), now_sec());
+	// init() loads image data once after initializing sound tables.
 	u.init();
+	log("image data loaded: %.1f MB in %.1fs\n", (double)loaded_bytes / (1024.0 * 1024.0), now_sec());
+    u.exit_on_close = false;
+    u.enable_game_commands = true;
 	log("ui init done at t=%.1fs\n", now_sec());
 
 	auto& wnd = u.wnd;
@@ -310,33 +205,45 @@ int main() {
 	}
 	log("window created at t=%.1fs\n", now_sec());
 
-	u.player.load_map_file(map_path);
+    u.load_skirmish(map_path);
 	log("map loaded at t=%.1fs\n", now_sec());
 
 	u.resize(screen_width, screen_height);
-	u.screen_pos = {(int)u.game_st.map_width / 2 - (int)screen_width / 2, (int)u.game_st.map_height / 2 - (int)screen_height / 2};
+	u.screen_pos = u.game_st.start_locations[u.command_owner] - xy(int(screen_width)/2, 260);
 	u.set_image_data();
 
 	log("game started at t=%.1fs, entering loop\n", now_sec());
 
-	// ---- main loop ----
-	input_state st;
-	st.have_controller = true;
-	int frame = 0;
-	u64 last_tick_log = 0;
-	while (true) {
-		handle_gamepad(st);
-		handle_touch(st);
+    // Simulate through ui_functions so sound and deselection callbacks stay active.
+    starcraft::switch_input input;
+    auto deadline = std::chrono::steady_clock::now();
+    int frame = 0;
+    while (appletMainLoop() && !u.window_closed && !input.quit) {
+        SDL_PumpEvents();
+        input.update();
+        u.update();
+        if (!u.is_paused && !u.window_closed && !input.quit) {
+            u.tick_bot();
+            u.state_functions::next_frame();
+            u.check_result();
+        }
+        if (++frame % 120 == 0) log("t=%.1fs render=%d simulation=%d\n", now_sec(), frame, u.st.current_frame);
+        deadline += std::chrono::milliseconds(42);
+        auto now = std::chrono::steady_clock::now();
+        if (deadline < now) deadline = now;
+        std::this_thread::sleep_until(deadline);
+    }
+    return 0;
+}
 
-		// OpenBW's update() polls and handles window events internally
-		u.update();
-		u.wnd.update_surface();
-
-		if (++frame % 120 == 0) {
-			log("t=%.1fs frame %d (alive)\n", now_sec(), frame);
-		}
-		std::this_thread::sleep_for(std::chrono::milliseconds(42));
-	}
-
-	return 0;
+int main() {
+    int result = 0;
+    try { result = run_game(); }
+    catch (const std::exception& e) {
+        if (log_file) { fprintf(log_file, "exception: %s\n", e.what()); fflush(log_file); }
+        result = 1;
+    }
+    SDL_Quit();
+    if (log_file) { fclose(log_file); log_file = nullptr; }
+    return result;
 }
